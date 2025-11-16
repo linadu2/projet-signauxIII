@@ -83,7 +83,7 @@ Ky = np.array([[1,  2,  1],
                [-1, -2, -1]], dtype=np.float32)
 
 # 1) Charger et redimensionner
-i = "IMG_20251019_180316.jpg"
+i = "resistance/r1/20251020_092534.jpg"
 im = load_and_resize_grayscale(i)
 img = load_and_resize_grayscale(i, max_long_side=1024)
 
@@ -95,7 +95,15 @@ Gy = conv2d(I, Ky)
 # 3) Magnitude du gradient et sauvegarde
 mag = np.hypot(Gx, Gy)  # sqrt(Gx**2 + Gy**2)
 mag = (mag / (mag.max() + 1e-8)) * 255.0
-Image.fromarray(mag.astype(np.uint8)).save(f"output/{i}-edges_sobel.png")
+import os
+output_path = f"output/{i}-edges_sobel.png"
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
+Image.fromarray(mag.astype(np.uint8)).save(output_path)
 
 # Exemple d'utilisation
-crop_single_object_on_plain_bg(i, "cropped.png")
+# Sauvegarder le crop dans le même dossier que les edges (output/resistance/....)
+output_dir = os.path.dirname(output_path)
+cropped_path = os.path.join(output_dir, "cropped.png")
+# S'assure que le dossier existe (déjà créé ci-dessus mais c'est sans risque)
+os.makedirs(output_dir, exist_ok=True)
+crop_single_object_on_plain_bg(i, cropped_path)
