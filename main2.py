@@ -2,146 +2,256 @@ import cv2
 import numpy as np
 import os
 
+
 def ensure_dir(p):
     if p and not os.path.exists(p):
         os.makedirs(p)
 
-def keep_resistor_body(mask_bin, save_dbg=None):
-    # mask_bin: binary mask where resistor+legs are white
-    # 1) Morphologically suppress thin legs (erosion removes narrow lines)
-    k_body = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
-    eroded = cv2.erode(mask_bin, k_body, iterations=1)
-    # recover slight erosion of body edges
-    k_close = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    body_morph = cv2.morphologyEx(eroded, cv2.MORPH_CLOSE, k_close, iterations=1)
-    if save_dbg:
-        cv2.imwrite(os.path.join(save_dbg, "03b_body_morph.png"), body_morph)
 
-    # 2) Contour-based refinement: keep the biggest thick blob
-    contours, _ = cv2.findContours(body_morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return body_morph
-    # pick contour with best area and thickness (reject long thin parts)
-    H, W = mask_bin.shape[:2]
-    sel = None
-    best_score = -1.0
-    for c in contours:
-        area = cv2.contourArea(c)
-        if area < 0.001 * H * W:
-            continue
-        x, y, w, h = cv2.boundingRect(c)
-        ar = w / float(h) if h > 0 else 0.0
-        hull = cv2.convexHull(c)
-        hull_area = cv2.contourArea(hull) + 1e-6
-        solidity = area / hull_area
-        # heuristic score: prioritize large area and moderate thickness (not needle-like)
-        thickness_penalty = 1.0 / (1.0 + abs(ar - 2.0))  # favor body-like AR around ~2 (tweak per dataset)
-        score = area * solidity * thickness_penalty
-        if score > best_score:
-            best_score = score
-            sel = c
-    body_mask = np.zeros_like(mask_bin)
-    if sel is not None:
-        cv2.drawContours(body_mask, [sel], -1, 255, thickness=cv2.FILLED)
-    if save_dbg:
-        cv2.imwrite(os.path.join(save_dbg, "03c_body_contour.png"), body_mask)
-    return body_mask
+def keep_resistor_body(mask_bin):
+    dist = cv2.distanceTransform(mask_bin, cv2.DIST_L2, 5)
+    max_val = np.max(dist)
+    if max_val == 0: return mask_bin
+    _, body_core = cv2.threshold(dist, 0.4 * max_val, 255, cv2.THRESH_BINARY)
+    body_core = body_core.astype(np.uint8)
+    contours_core, _ = cv2.findContours(body_core, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours_core: return mask_bin
+    largest_core = max(contours_core, key=cv2.contourArea)
+    core_mask_single = np.zeros_like(mask_bin)
+    cv2.drawContours(core_mask_single, [largest_core], -1, 255, -1)
+    dilation_size = int(max_val * 0.45)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilation_size * 2, dilation_size * 2))
+    restored_body = cv2.dilate(core_mask_single, kernel, iterations=1)
+    return cv2.bitwise_and(restored_body, mask_bin)
+
+
+def remove_glare_and_fill(img_bgr, body_color_bgr):
+    """
+    Detects pixels that are very bright (near white) and replaces them
+    with the average body color. This prevents glare from being detected as a band.
+    """
+    # Convert to HSV to find "White" (High Value, Low Saturation)
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+
+    # Define "Glare" as: Very Bright (V > 200) AND Low Saturation (S < 50)
+    # Or just extremely bright (V > 240) regardless of saturation
+    lower_white = np.array([0, 0, 200])
+    upper_white = np.array([180, 60, 255])
+    mask_sat_white = cv2.inRange(hsv, lower_white, upper_white)
+
+    _, _, v = cv2.split(hsv)
+    mask_bright = cv2.inRange(v, 235, 255)
+
+    # Combine masks
+    glare_mask = cv2.bitwise_or(mask_sat_white, mask_bright)
+
+    # Dilate mask slightly to cover the "halo" of the glare
+    kernel = np.ones((3, 3), np.uint8)
+    glare_mask = cv2.dilate(glare_mask, kernel, iterations=1)
+
+    # Create a canvas filled with body color
+    result = img_bgr.copy()
+
+    # Inpaint: Easier method -> Just replace glare pixels with body color
+    # We use a solid color replacement which is faster than inpainting
+    result[glare_mask > 0] = body_color_bgr
+
+    return result
+
+
+def get_vertical_projection(roi_img, out_dir=None):
+    h, w = roi_img.shape[:2]
+
+    # 1. Find Body Median Color First
+    # We need this to "paint over" the glare
+    center_mask = np.zeros((h, w), dtype=np.uint8)
+    center_mask[int(h * 0.3):int(h * 0.7), int(w * 0.3):int(w * 0.7)] = 255
+
+    # Calculate median BGR
+    b_chan, g_chan, r_chan = cv2.split(roi_img)
+    med_b = np.median(b_chan[center_mask > 0])
+    med_g = np.median(g_chan[center_mask > 0])
+    med_r = np.median(r_chan[center_mask > 0])
+    body_bgr = (int(med_b), int(med_g), int(med_r))
+
+    # 2. REMOVE GLARE (Filter White)
+    # This replaces white pixels with the brown body color
+    clean_img = remove_glare_and_fill(roi_img, body_bgr)
+    if out_dir: cv2.imwrite(os.path.join(out_dir, "09a_glare_removed.png"), clean_img)
+
+    # 3. Bilateral Filter (Smooths body, keeps edges)
+    smooth = cv2.bilateralFilter(clean_img, 5, 75, 75)
+
+    # 4. Convert to LAB
+    lab = cv2.cvtColor(smooth, cv2.COLOR_BGR2LAB)
+    l_chan, a_chan, b_chan = cv2.split(lab)
+
+    # Re-calculate median LAB from the CLEAN image
+    masked_l = l_chan[center_mask > 0]
+    masked_a = a_chan[center_mask > 0]
+    masked_b = b_chan[center_mask > 0]
+
+    if masked_l.size == 0: return np.zeros(w)
+
+    med_l = np.median(masked_l)
+    med_a = np.median(masked_a)
+    med_b = np.median(masked_b)
+
+    # 5. Calculate Difference
+    # L weight: 1.0 (Standard)
+    # Color weight: 2.0 (High sensitivity to Red/Orange)
+    diff_l = np.abs(l_chan.astype(np.float32) - med_l) * 1.0
+    diff_a = np.abs(a_chan.astype(np.float32) - med_a) * 2.0
+    diff_b = np.abs(b_chan.astype(np.float32) - med_b) * 2.0
+
+    total_diff_map = diff_l + diff_a + diff_b
+
+    # 6. Edge Detection (Sobel X) on the CLEAN image
+    gray = cv2.cvtColor(smooth, cv2.COLOR_BGR2GRAY)
+    sobelx = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
+
+    combined_energy = total_diff_map + (sobelx * 0.6)
+
+    # 7. Vertical Projection
+    row_start, row_end = int(h * 0.2), int(h * 0.8)
+    roi_energy = combined_energy[row_start:row_end, :]
+    profile = np.mean(roi_energy, axis=0)
+
+    # 8. Gaussian Weighting (Stronger Side Suppression)
+    # Sigma reduced to 0.65 (was 0.8).
+    # This forces the signal to 0 much faster as it approaches the edges.
+    x_axis = np.linspace(-1, 1, w)
+    gaussian_weight = np.exp(-(x_axis ** 2) / (2 * (0.65 ** 2)))
+    profile = profile * gaussian_weight
+
+    if np.max(profile) > 0:
+        profile = profile / np.max(profile)
+
+    return profile
+
+
+def find_bands(roi_img, out_dir=None):
+    h, w = roi_img.shape[:2]
+
+    profile = get_vertical_projection(roi_img, out_dir)
+
+    # Threshold: 0.20 (Adjustable)
+    THRESHOLD = 0.20
+
+    band_mask_1d = (profile > THRESHOLD).astype(np.uint8)
+
+    # Morphology
+    band_mask_1d = band_mask_1d.reshape(1, -1)
+    kernel = np.ones((1, 3), np.uint8)  # Smaller kernel (3) to prevent merging neighbors
+    band_mask_1d = cv2.dilate(band_mask_1d, kernel, iterations=1)
+    band_mask_1d = cv2.erode(band_mask_1d, kernel, iterations=1)
+    band_mask_1d = band_mask_1d.flatten()
+
+    band_rects = []
+    in_band = False
+    start_x = 0
+
+    for x in range(w):
+        val = band_mask_1d[x]
+        if val > 0 and not in_band:
+            in_band = True
+            start_x = x
+        elif val == 0 and in_band:
+            in_band = False
+            end_x = x
+            # Width > 2px
+            if (end_x - start_x) > 2:
+                band_rects.append((start_x, 0, end_x - start_x, h))
+
+    if in_band and (w - start_x) > 2:
+        band_rects.append((start_x, 0, w - start_x, h))
+
+    # Visualization
+    vis = roi_img.copy()
+    for i, (x, y, wb, hb) in enumerate(band_rects):
+        cv2.rectangle(vis, (x, 0), (x + wb, h), (0, 255, 0), 2)
+        cv2.putText(vis, str(i + 1), (x, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+    points = []
+    for x in range(w):
+        val = profile[x]
+        graph_y = int(h - (val * h))
+        points.append((x, graph_y))
+
+    cv2.polylines(vis, [np.array(points)], False, (255, 255, 255), 1)
+    thresh_y = int(h - (THRESHOLD * h))
+    cv2.line(vis, (0, thresh_y), (w, thresh_y), (255, 0, 0), 1)
+
+    return len(band_rects), band_rects, vis
+
 
 def isolate_rotate_resize_debug_body(
-    img_path,
-    out_dir="debug_out",
-    canvas_size=(800, 400),
-    margin_px=20,
-    thresh_method="auto"
+        img_path,
+        out_dir="debug_out",
+        canvas_size=(800, 400),
+        margin_px=20,
+        thresh_method="auto"
 ):
     ensure_dir(out_dir)
-
-    # 1) Load & grayscale
     img = cv2.imread(img_path)
-    if img is None:
-        raise ValueError("Could not read image")
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    cv2.imwrite(os.path.join(out_dir, "01_gray.png"), gray)
+    if img is None: return
 
-    # 2) Threshold (invert for white background)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     if thresh_method == "auto":
         _, th = cv2.threshold(255 - gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     else:
         _, th = cv2.threshold(255 - gray, 30, 255, cv2.THRESH_BINARY)
-    cv2.imwrite(os.path.join(out_dir, "02_thresh.png"), th)
 
-    # 3) Morphological cleanup
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     th_clean = cv2.morphologyEx(th, cv2.MORPH_OPEN, kernel, iterations=1)
-    cv2.imwrite(os.path.join(out_dir, "03_mask_clean.png"), th_clean)
 
-    # 3b) Keep only resistor body (suppress legs)
-    body_mask = keep_resistor_body(th_clean, save_dbg=out_dir)
+    body_mask = keep_resistor_body(th_clean)
 
-    # 4) Largest contour + minAreaRect visualization on body mask
     contours, _ = cv2.findContours(body_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        raise ValueError("No body contour found (adjust kernels or thresholds)")
+    if not contours: return
     c = max(contours, key=cv2.contourArea)
-
-    vis = img.copy()
-    cv2.drawContours(vis, [c], -1, (0, 255, 0), 2)
     rect = cv2.minAreaRect(c)
-    box = cv2.boxPoints(rect)
-    box = np.intp(box)
-    cv2.drawContours(vis, [box], -1, (0, 0, 255), 2)
-    cv2.imwrite(os.path.join(out_dir, "04_contour_vis_body.png"), vis)
-
     (cx, cy), (rw, rh), angle = rect
     if rw < rh:
-        angle = angle + 90.0
+        angle += 90.0
+        rw, rh = rh, rw
 
-    # 5) Rotate-bound color image and body mask
     (h_img, w_img) = img.shape[:2]
-    (cX, cY) = (w_img // 2, h_img // 2)
-    M = cv2.getRotationMatrix2D((cX, cY), angle, 1.0)
-    cos = abs(M[0, 0]); sin = abs(M[0, 1])
+    M = cv2.getRotationMatrix2D((w_img // 2, h_img // 2), angle, 1.0)
+    cos, sin = abs(M[0, 0]), abs(M[0, 1])
     nW = int((h_img * sin) + (w_img * cos))
     nH = int((h_img * cos) + (w_img * sin))
-    M[0, 2] += (nW / 2) - cX
-    M[1, 2] += (nH / 2) - cY
-
-    rot = cv2.warpAffine(img, M, (nW, nH), flags=cv2.INTER_CUBIC, borderValue=(255, 255, 255))
-    cv2.imwrite(os.path.join(out_dir, "05_rotated.png"), rot)
-
+    M[0, 2] += (nW / 2) - w_img // 2
+    M[1, 2] += (nH / 2) - h_img // 2
+    rot = cv2.warpAffine(img, M, (nW, nH), borderValue=(255, 255, 255))
     rot_body = cv2.warpAffine(body_mask, M, (nW, nH), flags=cv2.INTER_NEAREST, borderValue=0)
-    cv2.imwrite(os.path.join(out_dir, "06_rotated_body_mask.png"), rot_body)
 
-    # 7) Tight ROI from body mask
     contours_r, _ = cv2.findContours(rot_body, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours_r:
-        raise ValueError("No contours after rotation")
+    if not contours_r: return
     c_r = max(contours_r, key=cv2.contourArea)
     x, y, w_box, h_box = cv2.boundingRect(c_r)
-    roi = rot[y:y + h_box, x:x + w_box]
+
+    # --- CLEARANCE / CROP MODIFICATION ---
+    # Increase crop to 10% (0.10) to remove legs
+    crop_margin = int(w_box * 0.10)
+
+    x_roi = x + crop_margin
+    y_roi = y
+    w_roi = w_box - (2 * crop_margin)
+    h_roi = h_box
+
+    if w_roi < 10: w_roi = w_box; x_roi = x
+    roi = rot[y_roi: y_roi + h_roi, x_roi: x_roi + w_roi]
     cv2.imwrite(os.path.join(out_dir, "07_roi_body.png"), roi)
 
-    # 8) Resize to canvas
-    canvas_w, canvas_h = canvas_size
-    tgt_w = canvas_w - 2 * margin_px
-    tgt_h = canvas_h - 2 * margin_px
-    scale = min(tgt_w / w_box, tgt_h / h_box)
-    new_w = max(1, int(w_box * scale))
-    new_h = max(1, int(h_box * scale))
-    resized = cv2.resize(roi, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+    print("Running Vertical Projection...")
+    num, rects, debug_vis = find_bands(roi, out_dir=out_dir)
+    print(f"Found {num} bands.")
+    cv2.imwrite(os.path.join(out_dir, "09_bands_detected.png"), debug_vis)
 
-    canvas = np.full((canvas_h, canvas_w, 3), 255, dtype=np.uint8)
-    off_x = (canvas_w - new_w) // 2
-    off_y = (canvas_h - new_h) // 2
-    canvas[off_y:off_y + new_h, off_x:off_x + new_w] = resized
-
-    cv2.imwrite(os.path.join(out_dir, "08_final_canvas_body.png"), canvas)
 
 if __name__ == "__main__":
     isolate_rotate_resize_debug_body(
-        img_path="resistance/r1/20251020_092534.jpg",
+        img_path="resistance/r5/20251020_093406.jpg",
         out_dir="debug_out",
-        canvas_size=(800, 400),
-        margin_px=20,
-        thresh_method="auto",
     )
