@@ -2,11 +2,74 @@ import cv2
 import numpy as np
 import os
 
+# --- IMPORT DU CALCULATEUR ---
+try:
+    from resistor_calculator.main import decode_resistor
+except ImportError:
+    print("Attention: Module 'resistor_calculator' introuvable.")
+    decode_resistor = None
+
 
 def ensure_dir(p):
     if p and not os.path.exists(p):
         os.makedirs(p)
 
+
+# --- NOUVELLE FONCTION : Identifier la couleur ---
+def get_color_name(h, s, v):
+    """Détermine le nom de la couleur selon HSV"""
+    # 1. Achromatique (Gris, Noir, Blanc)
+    if s < 25: 
+        if v < 80: return "black"
+        if v > 200: return "white" # ou silver très brillant
+        return "silver"
+    
+    if v < 50: return "black"
+
+    # 2. Teintes (H = 0..179)
+    if (0 <= h < 10) or (170 <= h <= 180):
+        return "red"
+    elif 10 <= h < 22:
+        # Zone ambigue Marron / Orange / Or
+        if v > 180 and s > 100: return "orange" # Orange vif
+        if s > 80 and v < 180: return "brown"   # Marron classique
+        return "brown"
+    elif 22 <= h < 33:
+        # Zone Jaune / Or
+        if s > 100 and v < 220: return "gold"   # Or (souvent plus sombre que le jaune pur)
+        return "yellow"
+    elif 33 <= h < 85:
+        return "green"
+    elif 85 <= h < 130:
+        return "blue"
+    elif 130 <= h < 170:
+        return "violet"
+    
+    return "brown" # Fallback
+
+
+def analyze_band_color(roi_hsv, rect):
+    """Extrait la couleur moyenne dans le rectangle de la bande"""
+    x, y, w, h = rect
+    
+    # On regarde au centre de la bande pour éviter les bords flous
+    center_x = x + w // 2
+    margin = max(1, w // 4)
+    
+    # Petit crop au centre de la bande
+    band_crop = roi_hsv[int(h*0.25):int(h*0.75), center_x-margin:center_x+margin]
+    
+    if band_crop.size == 0: return "unknown"
+    
+    # Médiane pour éviter le bruit
+    h_val = np.median(band_crop[:,:,0])
+    s_val = np.median(band_crop[:,:,1])
+    v_val = np.median(band_crop[:,:,2])
+    
+    return get_color_name(h_val, s_val, v_val)
+
+
+# --- TON CODE ORIGINAL (Intact) ---
 
 def keep_resistor_body(mask_bin):
     dist = cv2.distanceTransform(mask_bin, cv2.DIST_L2, 5)
@@ -26,107 +89,56 @@ def keep_resistor_body(mask_bin):
 
 
 def remove_glare_and_fill(img_bgr, body_color_bgr):
-    """
-    Detects pixels that are very bright (near white) and replaces them
-    with the average body color. This prevents glare from being detected as a band.
-    """
-    # Convert to HSV to find "White" (High Value, Low Saturation)
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-
-    # Define "Glare" as: Very Bright (V > 200) AND Low Saturation (S < 50)
-    # Or just extremely bright (V > 240) regardless of saturation
     lower_white = np.array([0, 0, 200])
     upper_white = np.array([180, 60, 255])
     mask_sat_white = cv2.inRange(hsv, lower_white, upper_white)
-
     _, _, v = cv2.split(hsv)
     mask_bright = cv2.inRange(v, 235, 255)
-
-    # Combine masks
     glare_mask = cv2.bitwise_or(mask_sat_white, mask_bright)
-
-    # Dilate mask slightly to cover the "halo" of the glare
     kernel = np.ones((3, 3), np.uint8)
     glare_mask = cv2.dilate(glare_mask, kernel, iterations=1)
-
-    # Create a canvas filled with body color
     result = img_bgr.copy()
-
-    # Inpaint: Easier method -> Just replace glare pixels with body color
-    # We use a solid color replacement which is faster than inpainting
     result[glare_mask > 0] = body_color_bgr
-
     return result
 
 
 def get_vertical_projection(roi_img, out_dir=None):
     h, w = roi_img.shape[:2]
-
-    # 1. Find Body Median Color First
-    # We need this to "paint over" the glare
     center_mask = np.zeros((h, w), dtype=np.uint8)
     center_mask[int(h * 0.3):int(h * 0.7), int(w * 0.3):int(w * 0.7)] = 255
-
-    # Calculate median BGR
     b_chan, g_chan, r_chan = cv2.split(roi_img)
     med_b = np.median(b_chan[center_mask > 0])
     med_g = np.median(g_chan[center_mask > 0])
     med_r = np.median(r_chan[center_mask > 0])
     body_bgr = (int(med_b), int(med_g), int(med_r))
-
-    # 2. REMOVE GLARE (Filter White)
-    # This replaces white pixels with the brown body color
     clean_img = remove_glare_and_fill(roi_img, body_bgr)
     if out_dir: cv2.imwrite(os.path.join(out_dir, "09a_glare_removed.png"), clean_img)
-
-    # 3. Bilateral Filter (Smooths body, keeps edges)
     smooth = cv2.bilateralFilter(clean_img, 5, 75, 75)
-
-    # 4. Convert to LAB
     lab = cv2.cvtColor(smooth, cv2.COLOR_BGR2LAB)
     l_chan, a_chan, b_chan = cv2.split(lab)
-
-    # Re-calculate median LAB from the CLEAN image
     masked_l = l_chan[center_mask > 0]
     masked_a = a_chan[center_mask > 0]
     masked_b = b_chan[center_mask > 0]
-
     if masked_l.size == 0: return np.zeros(w)
-
     med_l = np.median(masked_l)
     med_a = np.median(masked_a)
     med_b = np.median(masked_b)
-
-    # 5. Calculate Difference
-    # L weight: 1.0 (Standard)
-    # Color weight: 2.0 (High sensitivity to Red/Orange)
     diff_l = np.abs(l_chan.astype(np.float32) - med_l) * 1.0
     diff_a = np.abs(a_chan.astype(np.float32) - med_a) * 2.0
     diff_b = np.abs(b_chan.astype(np.float32) - med_b) * 2.0
-
     total_diff_map = diff_l + diff_a + diff_b
-
-    # 6. Edge Detection (Sobel X) on the CLEAN image
     gray = cv2.cvtColor(smooth, cv2.COLOR_BGR2GRAY)
     sobelx = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
-
     combined_energy = total_diff_map + (sobelx * 0.6)
-
-    # 7. Vertical Projection
     row_start, row_end = int(h * 0.2), int(h * 0.8)
     roi_energy = combined_energy[row_start:row_end, :]
     profile = np.mean(roi_energy, axis=0)
-
-    # 8. Gaussian Weighting (Stronger Side Suppression)
-    # Sigma reduced to 0.65 (was 0.8).
-    # This forces the signal to 0 much faster as it approaches the edges.
     x_axis = np.linspace(-1, 1, w)
     gaussian_weight = np.exp(-(x_axis ** 2) / (2 * (0.65 ** 2)))
     profile = profile * gaussian_weight
-
     if np.max(profile) > 0:
         profile = profile / np.max(profile)
-
     return profile
 
 
@@ -135,14 +147,11 @@ def find_bands(roi_img, out_dir=None):
 
     profile = get_vertical_projection(roi_img, out_dir)
 
-    # Threshold: 0.20 (Adjustable)
     THRESHOLD = 0.20
 
     band_mask_1d = (profile > THRESHOLD).astype(np.uint8)
-
-    # Morphology
     band_mask_1d = band_mask_1d.reshape(1, -1)
-    kernel = np.ones((1, 3), np.uint8)  # Smaller kernel (3) to prevent merging neighbors
+    kernel = np.ones((1, 3), np.uint8)
     band_mask_1d = cv2.dilate(band_mask_1d, kernel, iterations=1)
     band_mask_1d = cv2.erode(band_mask_1d, kernel, iterations=1)
     band_mask_1d = band_mask_1d.flatten()
@@ -159,18 +168,27 @@ def find_bands(roi_img, out_dir=None):
         elif val == 0 and in_band:
             in_band = False
             end_x = x
-            # Width > 2px
             if (end_x - start_x) > 2:
                 band_rects.append((start_x, 0, end_x - start_x, h))
 
     if in_band and (w - start_x) > 2:
         band_rects.append((start_x, 0, w - start_x, h))
 
-    # Visualization
+    # --- MODIFICATION ICI : Analyse des couleurs ---
+    roi_hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
+    detected_colors = []
+
     vis = roi_img.copy()
-    for i, (x, y, wb, hb) in enumerate(band_rects):
+    for i, rect in enumerate(band_rects):
+        x, y, wb, hb = rect
+        
+        # Trouver la couleur
+        color_name = analyze_band_color(roi_hsv, rect)
+        detected_colors.append(color_name)
+
         cv2.rectangle(vis, (x, 0), (x + wb, h), (0, 255, 0), 2)
-        cv2.putText(vis, str(i + 1), (x, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        # Afficher la couleur sur l'image
+        cv2.putText(vis, color_name, (x, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
 
     points = []
     for x in range(w):
@@ -182,7 +200,8 @@ def find_bands(roi_img, out_dir=None):
     thresh_y = int(h - (THRESHOLD * h))
     cv2.line(vis, (0, thresh_y), (w, thresh_y), (255, 0, 0), 1)
 
-    return len(band_rects), band_rects, vis
+    # On retourne maintenant les couleurs en plus
+    return detected_colors, band_rects, vis
 
 
 def isolate_rotate_resize_debug_body(
@@ -232,7 +251,6 @@ def isolate_rotate_resize_debug_body(
     x, y, w_box, h_box = cv2.boundingRect(c_r)
 
     # --- CLEARANCE / CROP MODIFICATION ---
-    # Increase crop to 10% (0.10) to remove legs
     crop_margin = int(w_box * 0.10)
 
     x_roi = x + crop_margin
@@ -245,13 +263,28 @@ def isolate_rotate_resize_debug_body(
     cv2.imwrite(os.path.join(out_dir, "07_roi_body.png"), roi)
 
     print("Running Vertical Projection...")
-    num, rects, debug_vis = find_bands(roi, out_dir=out_dir)
-    print(f"Found {num} bands.")
+    # Récupération des couleurs ici
+    colors, rects, debug_vis = find_bands(roi, out_dir=out_dir)
+    
+    print(f"Found {len(colors)} bands.")
+    print(f"Colors: {colors}")
     cv2.imwrite(os.path.join(out_dir, "09_bands_detected.png"), debug_vis)
+
+    # --- ENVOI AU CALCULATEUR ---
+    if decode_resistor and len(colors) >= 3:
+        print("\n--- CALCULATEUR ---")
+        best_match, history = decode_resistor(colors)
+        if not best_match.get("error"):
+            print(f"Résistance: {best_match['ohms']} Ohms")
+            print(f"Tolérance: {best_match['tolerance_pct']}%")
+        else:
+            print("Erreur décodage:", best_match.get("reason"))
+    else:
+        print("Pas assez de bandes ou calculateur absent.")
 
 
 if __name__ == "__main__":
     isolate_rotate_resize_debug_body(
-        img_path="resistance/r5/20251020_093406.jpg",
+        img_path="resistance/r1/20251020_092534.jpg",
         out_dir="debug_out",
     )
