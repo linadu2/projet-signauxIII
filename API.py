@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import os
 from werkzeug.utils import secure_filename
 
@@ -32,6 +32,10 @@ def mon_programme_resistance(chemin_image):
     }
     return resultat
 
+@app.route('/')
+def index():
+    return render_template("resistance_analyzer.html")
+
 # --- LA ROUTE UNIQUE (Réception + Réponse) ---
 @app.route('/analyze', methods=['POST'])
 def analyze_image():
@@ -55,7 +59,7 @@ def analyze_image():
             data = mon_programme_resistance(filepath)
             
             # 4. Nettoyage (optionnel) : supprimer l'image après analyse
-            # os.remove(filepath) 
+            os.remove(filepath)
             
             # 5. Renvoyer le résultat en JSON au téléphone
             return jsonify(data)
@@ -65,4 +69,4 @@ def analyze_image():
 
 if __name__ == '__main__':
     # host='0.0.0.0' est CRUCIAL pour que ton téléphone puisse accéder au PC
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)

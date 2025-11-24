@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyseur de Résistance</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background-color: #f8f9ff;
+        }
+
+        .upload-area.dragover {
+            background-color: #f0f0ff;
+            border-color: #764ba2;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .upload-text {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .preview-container {
+            text-align: center;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        #imagePreview {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .results {
+            margin-top: 30px;
+            padding: 25px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 15px;
+            display: none;
+        }
+
+        .results.show {
+            display: block;
+            animation: slideIn 0.5s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-item {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .result-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .result-label {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .result-value {
+            font-size: 24px;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .colors-list {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .color-badge {
+            padding: 8px 16px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            font-weight: 500;
+            color: #333;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+            animation: slideIn 0.5s ease;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+
+        .loader.show {
+            display: block;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📷 Analyseur de Résistance</h1>
+
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📸</div>
+                <div class="upload-text">
+                    Cliquez ou glissez une image ici
+                </div>
+                <input type="file" id="fileInput" name="photo" accept="image/*" required>
+            </div>
+
+            <div class="preview-container" id="previewContainer">
+                <img id="imagePreview" alt="Aperçu">
+            </div>
+
+            <button type="submit" id="submitBtn">Analyser l'image</button>
+        </form>
+
+        <div class="loader" id="loader"></div>
+
+        <div class="error" id="error"></div>
+
+        <div class="results" id="results">
+            <div class="result-item">
+                <div class="result-label">Résistance</div>
+                <div class="result-value" id="resistanceValue">-</div>
+            </div>
+            <div class="result-item">
+                <div class="result-label">Tolérance</div>
+                <div class="result-value" id="toleranceValue" style="font-size: 20px;">-</div>
+            </div>
+            <div class="result-item">
+                <div class="result-label">Couleurs détectées</div>
+                <div class="colors-list" id="colorsList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const uploadForm = document.getElementById('uploadForm');
+        const previewContainer = document.getElementById('previewContainer');
+        const imagePreview = document.getElementById('imagePreview');
+        const submitBtn = document.getElementById('submitBtn');
+        const loader = document.getElementById('loader');
+        const results = document.getElementById('results');
+        const error = document.getElementById('error');
+
+        // Click sur la zone d'upload
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Drag & Drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                previewImage(files[0]);
+            }
+        });
+
+        // Preview de l'image sélectionnée
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                previewImage(e.target.files[0]);
+            }
+        });
+
+        function previewImage(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                imagePreview.src = e.target.result;
+                previewContainer.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Fonction pour nettoyer le formulaire
+        function cleanForm() {
+            uploadForm.reset();
+            previewContainer.style.display = 'none';
+            imagePreview.src = '';
+        }
+
+        // Soumission du formulaire
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Reset des résultats précédents
+            results.classList.remove('show');
+            error.classList.remove('show');
+
+            const formData = new FormData(uploadForm);
+
+            // Afficher le loader
+            loader.classList.add('show');
+            submitBtn.disabled = true;
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                loader.classList.remove('show');
+                submitBtn.disabled = false;
+
+                if (response.ok) {
+                    // Afficher les résultats
+                    displayResults(data);
+
+                    // Nettoyer le formulaire après succès (200 OK)
+                    cleanForm();
+                } else {
+                    // Afficher l'erreur
+                    showError(data.error || 'Une erreur est survenue');
+                }
+            } catch (err) {
+                loader.classList.remove('show');
+                submitBtn.disabled = false;
+                showError('Erreur de connexion au serveur');
+                console.error(err);
+            }
+        });
+
+        function displayResults(data) {
+            // Valeur de la résistance
+            document.getElementById('resistanceValue').textContent = 
+                data.resistance + ' ' + (data.unit || 'Ω');
+
+            // Tolérance
+            document.getElementById('toleranceValue').textContent = 
+                data.tolerance || '-';
+
+            // Couleurs
+            const colorsList = document.getElementById('colorsList');
+            colorsList.innerHTML = '';
+
+            if (data.colors && data.colors.length > 0) {
+                data.colors.forEach(color => {
+                    const badge = document.createElement('div');
+                    badge.className = 'color-badge';
+                    badge.textContent = color;
+                    colorsList.appendChild(badge);
+                });
+            } else {
+                colorsList.innerHTML = '<div class="color-badge">Aucune couleur détectée</div>';
+            }
+
+            results.classList.add('show');
+        }
+
+        function showError(message) {
+            error.textContent = '❌ ' + message;
+            error.classList.add('show');
+        }
+    </script>
+</body>
+</html>
