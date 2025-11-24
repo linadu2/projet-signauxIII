@@ -107,6 +107,16 @@
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
+            background: #999;
+        }
+
+        /* Nouveau style pour le statut du job */
+        .status-message {
+            text-align: center;
+            margin-top: 15px;
+            color: #666;
+            font-style: italic;
+            display: none;
         }
 
         .results {
@@ -229,6 +239,7 @@
         </form>
 
         <div class="loader" id="loader"></div>
+        <div class="status-message" id="statusMessage">Analyse en cours...</div>
 
         <div class="error" id="error"></div>
 
@@ -256,40 +267,32 @@
         const imagePreview = document.getElementById('imagePreview');
         const submitBtn = document.getElementById('submitBtn');
         const loader = document.getElementById('loader');
+        const statusMessage = document.getElementById('statusMessage');
         const results = document.getElementById('results');
         const error = document.getElementById('error');
 
-        // Click sur la zone d'upload
-        uploadArea.addEventListener('click', () => {
-            fileInput.click();
-        });
+        // --- GESTION UI (Drag & Drop, Preview) ---
 
-        // Drag & Drop
+        uploadArea.addEventListener('click', () => fileInput.click());
+
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadArea.classList.add('dragover');
         });
 
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
 
         uploadArea.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadArea.classList.remove('dragover');
-
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                fileInput.files = files;
-                previewImage(files[0]);
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                previewImage(e.dataTransfer.files[0]);
             }
         });
 
-        // Preview de l'image sélectionnée
         fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                previewImage(e.target.files[0]);
-            }
+            if (e.target.files.length > 0) previewImage(e.target.files[0]);
         });
 
         function previewImage(file) {
@@ -301,66 +304,93 @@
             reader.readAsDataURL(file);
         }
 
-        // Fonction pour nettoyer le formulaire
         function cleanForm() {
             uploadForm.reset();
             previewContainer.style.display = 'none';
             imagePreview.src = '';
         }
 
-        // Soumission du formulaire
+        // --- LOGIQUE ASYNC / POLLING ---
+
         uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            // Reset des résultats précédents
+            // Reset UI
             results.classList.remove('show');
             error.classList.remove('show');
+            loader.classList.add('show');
+            statusMessage.style.display = 'block';
+            statusMessage.textContent = "Envoi de l'image...";
+            submitBtn.disabled = true;
 
             const formData = new FormData(uploadForm);
 
-            // Afficher le loader
-            loader.classList.add('show');
-            submitBtn.disabled = true;
-
             try {
-                const response = await fetch('/analyze', {
+                // 1. Démarrer le job
+                const response = await fetch('/analyze-async', { // Notez l'URL async
                     method: 'POST',
                     body: formData
                 });
 
                 const data = await response.json();
 
-                loader.classList.remove('show');
-                submitBtn.disabled = false;
-
-                if (response.ok) {
-                    // Afficher les résultats
-                    displayResults(data);
-
-                    // Nettoyer le formulaire après succès (200 OK)
-                    cleanForm();
+                if (response.status === 202) {
+                    // Succès du lancement -> On commence à surveiller
+                    pollStatus(data.job_id);
                 } else {
-                    // Afficher l'erreur
-                    showError(data.error || 'Une erreur est survenue');
+                    // Erreur immédiate
+                    throw new Error(data.error || 'Erreur lors du lancement');
                 }
+
             } catch (err) {
-                loader.classList.remove('show');
-                submitBtn.disabled = false;
-                showError('Erreur de connexion au serveur');
-                console.error(err);
+                handleError(err.message);
             }
         });
 
+        async function pollStatus(jobId) {
+            statusMessage.textContent = "Traitement en cours...";
+
+            const pollInterval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/status/${jobId}`);
+
+                    if (!res.ok) throw new Error("Erreur réseau lors du polling");
+
+                    const job = await res.json();
+
+                    if (job.state === 'done') {
+                        clearInterval(pollInterval);
+                        finishJob();
+                        displayResults(job.result);
+                        cleanForm(); // On nettoie le formulaire comme demandé
+                    } else if (job.state === 'failed') {
+                        clearInterval(pollInterval);
+                        finishJob();
+                        handleError(job.error || "Le traitement a échoué");
+                    }
+                    // Si 'processing', on continue d'attendre...
+
+                } catch (err) {
+                    clearInterval(pollInterval);
+                    finishJob();
+                    handleError("Erreur de communication avec le serveur");
+                }
+            }, 1000); // Vérification chaque seconde
+        }
+
+        function finishJob() {
+            loader.classList.remove('show');
+            statusMessage.style.display = 'none';
+            submitBtn.disabled = false;
+        }
+
         function displayResults(data) {
-            // Valeur de la résistance
             document.getElementById('resistanceValue').textContent = 
                 data.resistance + ' ' + (data.unit || 'Ω');
 
-            // Tolérance
             document.getElementById('toleranceValue').textContent = 
                 data.tolerance || '-';
 
-            // Couleurs
             const colorsList = document.getElementById('colorsList');
             colorsList.innerHTML = '';
 
@@ -378,8 +408,9 @@
             results.classList.add('show');
         }
 
-        function showError(message) {
-            error.textContent = '❌ ' + message;
+        function handleError(msg) {
+            finishJob();
+            error.textContent = '❌ ' + msg;
             error.classList.add('show');
         }
     </script>

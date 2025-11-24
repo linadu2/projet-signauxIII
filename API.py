@@ -1,72 +1,104 @@
-from flask import Flask, request, jsonify, render_template
 import os
+import uuid
+import time
+from flask import Flask, request, jsonify, render_template
+from concurrent.futures import ThreadPoolExecutor
 from werkzeug.utils import secure_filename
 
-# Création de l'application
 app = Flask(__name__)
 
-# Dossier où on va sauvegarder temporairement les images reçues
-UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+# Configuration
+UPLOAD_FOLDER = 'temp_uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)  # Crée le dossier s'il n'existe pas
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# --- TA FONCTION DE TRAITEMENT ---
-def mon_programme_resistance(chemin_image):
-    """
-    C'est ici que tu intègres ton script existant.
-    Pour l'instant, c'est une simulation.
-    """
-    print(f"Analyse de l'image : {chemin_image}")
-    
-    # TODO: Remplace ceci par ton vrai appel de fonction
-    # ex: valeur, couleurs = detecter_resistor(chemin_image)
-    
-    # Simulation du résultat
-    resultat = {
-        "resistance": "4.7k",
-        "unit": "Ω",
-        "tolerance": "±1%",
-        "colors": ["Jaune", "Violet", "Rouge", "Marron"]
-    }
-    return resultat
+# Pool de threads pour les tâches longues
+executor = ThreadPoolExecutor(max_workers=2)
+jobs = {}
 
 @app.route('/')
 def index():
     return render_template("resistance_analyzer.html")
 
-# --- LA ROUTE UNIQUE (Réception + Réponse) ---
-@app.route('/analyze', methods=['POST'])
-def analyze_image():
-    # 1. Vérifier si une image est présente dans la requête
+
+def long_running_analysis(job_id, filepath):
+    """
+    Cette fonction s'exécute en arrière-plan.
+    Elle est totalement indépendante de la requête HTTP initiale.
+    """
+    try:
+        print(f"[{job_id}] Début du traitement sur {filepath}")
+
+        # --- SIMULATION DU TRAITEMENT LOURD (ex: IA, OCR) ---
+        time.sleep(10)
+
+        # Exemple d'utilisation réelle :
+        # result = mon_programme_ia.predict(filepath)
+
+        # Résultat factice pour l'exemple
+        result = {
+            "resistance": "4.7k",
+            "unit": "Ω",
+            "tolerance": "±1%",
+            "colors": ["Jaune", "Violet", "Rouge", "Marron"]
+        }
+
+        jobs[job_id] = {"state": "done", "result": result}
+        # print(f"[{job_id}] Traitement terminé avec succès")
+
+    except Exception as e:
+        print(f"[{job_id}] Erreur : {e}")
+        jobs[job_id] = {"state": "failed", "error": str(e)}
+
+    finally:
+        # --- NETTOYAGE DU FICHIER ---
+        # Le 'finally' garantit que le fichier est supprimé
+        # même si le code plante dans le bloc 'try'
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            # print(f"[{job_id}] Fichier temporaire supprimé")
+
+
+@app.route('/analyze-async', methods=['POST'])
+def analyze_async():
     if 'photo' not in request.files:
         return jsonify({"error": "Aucune image envoyée"}), 400
-    
+
     file = request.files['photo']
-    
     if file.filename == '':
         return jsonify({"error": "Nom de fichier vide"}), 400
 
-    if file:
-        # 2. Sauvegarder l'image en toute sécurité
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        
-        try:
-            # 3. Appeler ton programme Python
-            data = mon_programme_resistance(filepath)
-            
-            # 4. Nettoyage (optionnel) : supprimer l'image après analyse
-            os.remove(filepath)
-            
-            # 5. Renvoyer le résultat en JSON au téléphone
-            return jsonify(data)
-            
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+    # 1. Générer l'ID unique pour cette tâche
+    job_id = str(uuid.uuid4())
+
+    # 2. Construire un nom de fichier sécurisé basé sur l'UUID
+    # On garde l'extension d'origine (.jpg, .png) pour que les outils d'image s'y retrouvent
+    _, ext = os.path.splitext(file.filename)
+    filename = f"{job_id}{ext}"
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+
+    # 3. Sauvegarder physiquement le fichier MAINTENANT
+    # C'est indispensable car 'file' sera détruit à la fin de cette fonction
+    file.save(filepath)
+
+    # 4. Initialiser l'état du job
+    jobs[job_id] = {"state": "processing"}
+
+    # 5. Lancer le thread avec le CHEMIN vers le fichier sauvegardé
+    executor.submit(long_running_analysis, job_id, filepath)
+
+    # 6. Répondre immédiatement au client avec le ticket (202 Accepted)
+    return jsonify({
+        "message": "Image reçue, traitement démarré",
+        "job_id": job_id
+    }), 202
+
+
+@app.route('/status/<job_id>', methods=['GET'])
+def get_status(job_id):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job introuvable"}), 404
+    return jsonify(job)
 
 if __name__ == '__main__':
-    # host='0.0.0.0' est CRUCIAL pour que ton téléphone puisse accéder au PC
     app.run(host='0.0.0.0', port=5000)
