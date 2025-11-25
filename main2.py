@@ -15,52 +15,40 @@ def ensure_dir(p):
         os.makedirs(p)
 
 # =============================================================================
-# 1. ANALYSE COULEUR (LOGIQUE DURCIE ANTI-GRIS-ROUGE)
+# 1. ANALYSE COULEUR (LOGIQUE MODIFIÉE : ECHANGE SILVER <-> GREY)
 # =============================================================================
 
 def get_color_name(h, s, v):
-    # --- A. LOGIQUE ARGENT / GRIS (Prioritaire) ---
-    
-    # Cas 1 : C'est brillant (Argent)
-    # Si la valeur est haute (>70), on tolère une saturation moyenne (bruit coloré)
-    # jusqu'à 60. C'est souvent là que le gris "chaud" se cache.
+    # --- A. LOGIQUE ARGENT / GRIS (Prioritaire - Inversée selon ta demande précédente) ---
     if v > 70 and s < 60:
-        return "silver"
-        
-    # Cas 2 : Gris standard ou terne
+        return "grey"  # C'est brillant -> Gris (pour le calculateur)
     if s < 40: 
         if v < 50: return "black"
-        return "grey"
-    
-    # Noir "coloré" (bruit sombre)
+        return "silver" # C'est terne -> Silver (pour le calculateur)
     if v < 50: return "black"
 
     # --- B. TEINTES ---
 
-    # ROUGE : Le piège !
-    # Une teinte proche de 0 peut être du gris chaud.
-    # ON IMPOSE UNE SATURATION MINIMALE FORTE POUR LE ROUGE.
-    if (0 <= h < 12) or (170 <= h <= 180):
-        if s > 80: # Si c'est bien saturé -> C'est Rouge
+    if (0 <= h < 12) or (160 <= h <= 180): 
+        if s > 80: 
             return "red"
         else:
-            # Si Hue = Rouge mais Saturation < 80 -> C'est de l'Argent
-            return "silver"
+            return "grey" # Si pas saturé, c'est du gris/argent
     
     elif 12 <= h < 22:
-        # Zone ambigue Marron / Orange
         if v > 180 and s > 90: return "orange"
         return "brown"
         
     elif 22 <= h < 35:
-        # Zone Jaune / Or
         if s > 60 and v > 60: return "gold"
         if v < 150: return "brown"
         return "yellow"
 
     elif 35 <= h < 85: return "green"
     elif 85 <= h < 130: return "blue"
-    elif 130 <= h < 170: return "violet"
+    
+    elif 130 <= h < 160: 
+        return "violet"
     
     return "brown"
 
@@ -224,7 +212,7 @@ def find_bands(roi_img, out_dir=None):
 
     # --- A. Projection Standard ---
     profile = get_vertical_projection(roi_img, out_dir)
-    THRESHOLD = 0.22 
+    THRESHOLD = 0.28
     
     band_mask_1d = (profile > THRESHOLD).astype(np.uint8)
     band_mask_1d = band_mask_1d.reshape(1, -1)
@@ -395,6 +383,6 @@ def isolate_rotate_resize_debug_body(
 
 if __name__ == "__main__":
     isolate_rotate_resize_debug_body(
-        img_path="resistance/r5/20251020_093420.jpg",
+        img_path="resistance/r5/20251020_093418.jpg",
         out_dir="debug_out",
     )
