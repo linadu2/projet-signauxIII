@@ -361,28 +361,41 @@ def isolate_rotate_resize_debug_body(
     print("Running Analysis...")
     colors, rects, debug_vis = find_bands(roi, out_dir=out_dir)
     
-    print(f"Found {len(colors)} bands.")
-    print(f"Colors: {colors}")
+    #print(f"Found {len(colors)} bands.")
+    #print(f"Colors: {colors}")
     cv2.imwrite(os.path.join(out_dir, "09_bands_detected.png"), debug_vis)
 
     if decode_resistor and len(colors) >= 3:
-        print("\n--- CALCULATEUR ---")
+        #print("\n--- CALCULATEUR ---")
         best_match, history = decode_resistor(colors)
         if not best_match.get("error"):
-            print(f"Résistance: {best_match['ohms']} Ohms")
-            print(f"Tolérance: {best_match['tolerance_pct']}%")
+            #print(f"Résistance: {best_match['ohms']} Ohms")
+            #print(f"Tolérance: {best_match['tolerance_pct']}%")
+            return {
+            "resistance": best_match["ohms"],
+            "unit": "Ω",
+            "tolerance": f"±{best_match['tolerance_pct']}%",
+            "colors": colors
+        }
         else:
-            print("Erreur décodage:", best_match.get("reason"))
+            #print("Erreur décodage:", best_match.get("reason"))
             rev_colors = list(reversed(colors))
             match2, _ = decode_resistor(rev_colors)
             if not match2.get("error"):
-                print(f" -> (Sens Inverse) {match2['ohms']} Ohms")
+                #print(f" -> (Sens Inverse) {match2['ohms']} Ohms")
+                return {
+                    "resistance": match2["ohms"],
+                    "unit": "Ω",
+                    "tolerance": f"±{match2['tolerance_pct']}%",
+                    "colors": colors
+                }
     else:
-        print("Pas assez de bandes ou calculateur absent.")
+        #print("Pas assez de bandes ou calculateur absent.")
+        return "errors"
 
 
 if __name__ == "__main__":
-    isolate_rotate_resize_debug_body(
+    print(isolate_rotate_resize_debug_body(
         img_path="resistance/r5/20251020_093418.jpg",
         out_dir="debug_out",
-    )
+    ))

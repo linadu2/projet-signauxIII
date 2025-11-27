@@ -4,6 +4,7 @@ import time
 from flask import Flask, request, jsonify, render_template
 from concurrent.futures import ThreadPoolExecutor
 from werkzeug.utils import secure_filename
+from main2 import isolate_rotate_resize_debug_body
 
 app = Flask(__name__)
 
@@ -29,18 +30,22 @@ def long_running_analysis(job_id, filepath):
         print(f"[{job_id}] Début du traitement sur {filepath}")
 
         # --- SIMULATION DU TRAITEMENT LOURD (ex: IA, OCR) ---
-        time.sleep(10)
+        result = isolate_rotate_resize_debug_body(
+            img_path=filepath,
+            out_dir="debug_out",
+        )
+
 
         # Exemple d'utilisation réelle :
         # result = mon_programme_ia.predict(filepath)
 
         # Résultat factice pour l'exemple
-        result = {
-            "resistance": "4.7k",
-            "unit": "Ω",
-            "tolerance": "±1%",
-            "colors": ["Jaune", "Violet", "Rouge", "Marron"]
-        }
+        #result = {
+        #    "resistance": "4.7k",
+        #    "unit": "Ω",
+        #    "tolerance": "±1%",
+        #    "colors": ["Jaune", "Violet", "Rouge", "Marron"]
+        #}
 
         jobs[job_id] = {"state": "done", "result": result}
         # print(f"[{job_id}] Traitement terminé avec succès")
