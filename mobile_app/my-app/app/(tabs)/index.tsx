@@ -21,6 +21,8 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
 
+  const API_URL = "http://192.168.0.30:5000";
+
   // --- 1. Gestion de la Caméra et Galerie ---
 
   const pickImage = async () => {
@@ -67,47 +69,72 @@ export default function App() {
     setResult(null);
   };
 
-  // --- 2. Simulation de l'appel API Python ---
-
+      // --- 2. Appel API Python (Corrected) ---
   const analyzeImage = async () => {
+    if (!selectedImage) return;
+
     setIsAnalyzing(true);
+    setResult(null);
 
-    /* C'est ICI que tu mettras ton vrai appel réseau plus tard.
-       Exemple :
+    try {
+      // A. PREPARE IMAGE
+      const localUri = selectedImage;
+      const filename = localUri.split('/').pop() || "upload.jpg";
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : `image/jpeg`;
 
-       let localUri = selectedImage;
-       let filename = localUri.split('/').pop();
-       let match = /\.(\w+)$/.exec(filename);
-       let type = match ? `image/${match[1]}` : `image`;
+      const formData = new FormData();
+      // @ts-ignore
+      formData.append('photo', { uri: localUri, name: filename, type });
 
-       let formData = new FormData();
-       formData.append('photo', { uri: localUri, name: filename, type });
+      // B. START JOB
+      const uploadResponse = await fetch(`${API_URL}/analyze-async`, {
+        method: 'POST',
+        body: formData,
+      });
 
-       try {
-         let response = await fetch('http://TON_IP_PC:5000/predict', {
-           method: 'POST',
-           body: formData,
-           headers: { 'content-type': 'multipart/form-data' },
-         });
-         let json = await response.json();
-         setResult(json);
-       } catch (error) {
-         console.error(error);
-       }
-    */
+      if (!uploadResponse.ok) throw new Error(`Upload failed: ${uploadResponse.status}`);
 
-    // Simulation d'attente (2 secondes)
-    setTimeout(() => {
-      const mockResult = {
-        resistance: "2.2k",
-        unit: "Ω",
-        tolerance: "±5%",
-        colors: ["Rouge", "Rouge", "Rouge", "Or"],
+      const uploadData = await uploadResponse.json();
+      const jobId = uploadData.job_id;
+
+      if (!jobId) throw new Error("No job_id returned");
+
+      // C. POLL STATUS (Recursive)
+      const pollStatus = async () => {
+        try {
+          const statusResponse = await fetch(`${API_URL}/status/${jobId}`);
+          const job = await statusResponse.json();
+
+          if (job.state === 'done') {
+            // SUCCESS: The actual data is inside 'job.result'
+            setResult(job.result);
+            setIsAnalyzing(false);
+          }
+          else if (job.state === 'failed') {
+            Alert.alert("Erreur", job.error || "Le traitement a échoué");
+            setIsAnalyzing(false);
+          }
+          else {
+            // If 'processing' or 'pending', wait 1s and check again
+            setTimeout(pollStatus, 1000);
+          }
+        } catch (err) {
+          console.error(err);
+          setIsAnalyzing(false); // Stop the spinner on network error
+        }
       };
-      setResult(mockResult);
+
+      pollStatus();
+
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Erreur", "Impossible d'envoyer l'image");
       setIsAnalyzing(false);
-    }, 2000);
+    }
   };
+
+
 
   // --- 3. Rendu Visuel ---
 
