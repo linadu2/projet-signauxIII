@@ -1,10 +1,8 @@
 import os
 import uuid
-import time
 from flask import Flask, request, jsonify, render_template
 from concurrent.futures import ThreadPoolExecutor
-from werkzeug.utils import secure_filename
-from main2 import isolate_rotate_resize_debug_body
+from main3 import isolate_rotate_resize_debug_body
 
 app = Flask(__name__)
 
