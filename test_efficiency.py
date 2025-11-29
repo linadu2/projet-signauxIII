@@ -7,7 +7,7 @@ from collections import Counter
 # Import the analysis function from your optimized script
 # Ensure your optimized script is named 'main3.py' and is in the same directory
 try:
-    from main3 import isolate_rotate_resize_debug_body
+    from main4 import isolate_rotate_resize_debug_body
 except ImportError:
     print("Error: Could not import 'main3.py'. Make sure the file exists and is named correctly.")
     exit(1)

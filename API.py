@@ -2,7 +2,7 @@ import os
 import uuid
 from flask import Flask, request, jsonify, render_template
 from concurrent.futures import ThreadPoolExecutor
-from main3 import isolate_rotate_resize_debug_body
+from main4 import isolate_rotate_resize_debug_body
 
 app = Flask(__name__)
 
