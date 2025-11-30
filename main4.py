@@ -200,23 +200,38 @@ def process_resistor_image(img_path, out_dir="output"):
     if roi.size == 0: return print("Crop failed")
     cv2.imwrite(os.path.join(out_dir, "05_roi.png"), roi)
 
-    print("Scanning...")
+    # print("Scanning...")
     colors, rects, vis = scan_resistor_bands(roi, out_dir)
     cv2.imwrite(os.path.join(out_dir, "06_result.png"), vis)
-    print(f"Colors: {colors}")
+    # print(f"Colors: {colors}")
 
-    if decode_resistor:
-        res, _ = decode_resistor(colors)
-        if res and not res.get("error"):
-            print(f"Result: {res['ohms']} Ohms {res['tolerance_pct']}%")
+    if decode_resistor and len(colors) >= 3:
+        # print("\n--- CALCULATEUR ---")
+        best_match, history = decode_resistor(colors)
+        if not best_match.get("error"):
+            # print(f"Résistance: {best_match['ohms']} Ohms")
+            # print(f"Tolérance: {best_match['tolerance_pct']}%")
+            return {
+                "resistance": best_match["ohms"],
+                "unit": "Ω",
+                "tolerance": f"±{best_match['tolerance_pct']}%",
+                "colors": colors
+            }
         else:
-            print("Trying reverse...")
-            res_rev, _ = decode_resistor(list(reversed(colors)))
-            if res_rev and not res_rev.get("error"):
-                print(f"Result (Rev): {res_rev['ohms']} Ohms {res_rev['tolerance_pct']}%")
-            else:
-                print("Decode failed.")
-    return colors
+            # print("Erreur décodage:", best_match.get("reason"))
+            rev_colors = list(reversed(colors))
+            match2, _ = decode_resistor(rev_colors)
+            if not match2.get("error"):
+                # print(f" -> (Sens Inverse) {match2['ohms']} Ohms")
+                return {
+                    "resistance": match2["ohms"],
+                    "unit": "Ω",
+                    "tolerance": f"±{match2['tolerance_pct']}%",
+                    "colors": colors
+                }
+    else:
+        # print("Pas assez de bandes ou calculateur absent.")
+        return "errors"
 
 if __name__ == "__main__":
-    process_resistor_image("resistance/r1/20251020_092634.jpg", "debug_out")
+    print(process_resistor_image("resistance/r5/20251020_093432.jpg", "debug_out"))

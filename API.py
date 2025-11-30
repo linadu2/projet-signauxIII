@@ -2,7 +2,7 @@ import os
 import uuid
 from flask import Flask, request, jsonify, render_template
 from concurrent.futures import ThreadPoolExecutor
-from main4 import isolate_rotate_resize_debug_body
+from main4 import process_resistor_image
 
 app = Flask(__name__)
 
@@ -28,7 +28,7 @@ def long_running_analysis(job_id, filepath):
         print(f"[{job_id}] Début du traitement sur {filepath}")
 
         # --- SIMULATION DU TRAITEMENT LOURD (ex: IA, OCR) ---
-        result = isolate_rotate_resize_debug_body(
+        result = process_resistor_image(
             img_path=filepath,
             out_dir="debug_out",
         )

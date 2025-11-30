@@ -7,7 +7,7 @@ from collections import Counter
 # Import the analysis function from your optimized script
 # Ensure your optimized script is named 'main3.py' and is in the same directory
 try:
-    from main4 import isolate_rotate_resize_debug_body
+    from main4 import process_resistor_image
 except ImportError:
     print("Error: Could not import 'main3.py'. Make sure the file exists and is named correctly.")
     exit(1)
@@ -108,10 +108,9 @@ def main():
             t0 = time.time()
             try:
                 # Suppress print output from main3 during bulk processing if desired
-                detection_result = isolate_rotate_resize_debug_body(
+                detection_result = process_resistor_image(
                     img_path=img_path,
                     out_dir=os.path.join("debug_test", folder_name),  # Separate debug folder per resistor
-                    thresh_method="auto"
                 )
             except Exception as e:
                 detection_result = "errors"
