@@ -3,6 +3,7 @@ opencv-python
 pillow
 scipy
 scikit-learn
+scikit-image
 matplotlib
 flask
 pandas

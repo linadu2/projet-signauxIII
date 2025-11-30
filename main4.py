@@ -413,10 +413,10 @@ def isolate_rotate_resize_debug_body(img_path, out_dir="debug_out", thresh_metho
     roi = rot[y_roi: y_roi + h_roi, x_roi: x_roi + w_roi]
     cv2.imwrite(os.path.join(out_dir, "07_roi_body.png"), roi)
 
-    #print("Running Band Analysis on ROI...")
+    # print("Running Band Analysis on ROI...")
     colors, rects, debug_vis = find_bands(roi, out_dir=out_dir)
 
-    #print(f"Colors Found: {colors}")
+    # print(f"Colors Found: {colors}")
     cv2.imwrite(os.path.join(out_dir, "09_bands_detected.png"), debug_vis)
 
     if decode_resistor and len(colors) >= 3:
@@ -451,4 +451,4 @@ def isolate_rotate_resize_debug_body(img_path, out_dir="debug_out", thresh_metho
 # Execute
 if __name__ == "__main__":
     # Ensure you have '20251020_093407.jpg' in the same directory
-    print(isolate_rotate_resize_debug_body("png-clipart-pull-up-resistor-electronics-electronic-color-code-electronic-circuit-others-miscellaneous-calculator-thumbnail.png"))
+    print(isolate_rotate_resize_debug_body("resistance/random/CFR-1W-10E-180x180.jpg"))
