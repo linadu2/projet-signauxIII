@@ -98,7 +98,7 @@ def main():
         expected_colors = ground_truth[folder_name]
 
         # List all jpg images
-        images = [f for f in os.listdir(folder_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        images = [f for f in os.listdir(folder_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
 
         for img_name in images:
             img_path = os.path.join(folder_path, img_name)

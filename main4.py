@@ -451,4 +451,4 @@ def isolate_rotate_resize_debug_body(img_path, out_dir="debug_out", thresh_metho
 # Execute
 if __name__ == "__main__":
     # Ensure you have '20251020_093407.jpg' in the same directory
-    print(isolate_rotate_resize_debug_body("resistance/random/CFR-1W-10E-180x180.jpg"))
+    print(isolate_rotate_resize_debug_body("resistance/random/ROYALBLUELEADED-40.jpg"))
