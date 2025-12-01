@@ -5,7 +5,7 @@ import math
 
 # --- IMPORT CALCULATEUR ---
 try:
-    from resistor_calculator.main import decode_resistor
+    from lib.calculator import decode_resistor
 except ImportError:
     decode_resistor = None
 
@@ -234,4 +234,4 @@ def process_resistor_image(img_path, out_dir="output"):
         return "errors"
 
 if __name__ == "__main__":
-    print(process_resistor_image("resistance/r5/20251020_093432.jpg", "debug_out"))
+    print(process_resistor_image("../dataset/r5/20251020_093432.jpg", "debug_out"))

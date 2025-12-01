@@ -1,4 +1,6 @@
 .venv/
 debug_out/
 output/
-debug_test/
+temp_uploads/
+validation/efficiency_report.csv
+validation/debug_out/

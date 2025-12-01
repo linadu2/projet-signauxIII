@@ -2,7 +2,7 @@ import os
 import uuid
 from flask import Flask, request, jsonify, render_template
 from concurrent.futures import ThreadPoolExecutor
-from main4 import process_resistor_image
+from lib.analyser import process_resistor_image
 
 app = Flask(__name__)
 
@@ -32,18 +32,6 @@ def long_running_analysis(job_id, filepath):
             img_path=filepath,
             out_dir="debug_out",
         )
-
-
-        # Exemple d'utilisation réelle :
-        # result = mon_programme_ia.predict(filepath)
-
-        # Résultat factice pour l'exemple
-        #result = {
-        #    "resistance": "4.7k",
-        #    "unit": "Ω",
-        #    "tolerance": "±1%",
-        #    "colors": ["Jaune", "Violet", "Rouge", "Marron"]
-        #}
 
         jobs[job_id] = {"state": "done", "result": result}
         # print(f"[{job_id}] Traitement terminé avec succès")

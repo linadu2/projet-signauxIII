@@ -285,7 +285,7 @@ def plot_full_analysis(raw_data, saturated_data, body_start, body_end, band_posi
 
 
 if __name__ == "__main__":
-    img_path = "resistance/r5/20251020_093409.jpg"
+    img_path = "dataset/r5/20251020_093409.jpg"
 
     print("=" * 60)
     print("RESISTOR COLOR CODE ANALYZER")

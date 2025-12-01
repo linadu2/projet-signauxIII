@@ -5,7 +5,7 @@ from scipy.signal import find_peaks
 
 # --- IMPORT DU CALCULATEUR ---
 try:
-    from resistor_calculator.main import decode_resistor
+    from lib.main import decode_resistor
 except ImportError:
     decode_resistor = None
 
@@ -318,4 +318,4 @@ def isolate_rotate_resize_debug_body(img_path, out_dir="debug_out", thresh_metho
 
 
 if __name__ == "__main__":
-    print(isolate_rotate_resize_debug_body("resistance/r5/20251020_093406.jpg"))
+    print(isolate_rotate_resize_debug_body("dataset/r5/20251020_093406.jpg"))

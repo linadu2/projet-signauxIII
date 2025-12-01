@@ -7,13 +7,13 @@ from collections import Counter
 # Import the analysis function from your optimized script
 # Ensure your optimized script is named 'main3.py' and is in the same directory
 try:
-    from main4 import process_resistor_image
+    from lib.analyser import process_resistor_image
 except ImportError:
     print("Error: Could not import 'main3.py'. Make sure the file exists and is named correctly.")
     exit(1)
 
 # Configuration
-RESISTANCE_DIR = "resistance"
+RESISTANCE_DIR = "../dataset"
 JSON_FILE = os.path.join(RESISTANCE_DIR, "value.json")
 OUTPUT_CSV = "efficiency_report.csv"
 
@@ -110,7 +110,7 @@ def main():
                 # Suppress print output from main3 during bulk processing if desired
                 detection_result = process_resistor_image(
                     img_path=img_path,
-                    out_dir=os.path.join("debug_test", folder_name),  # Separate debug folder per resistor
+                    out_dir=os.path.join("debug_out", folder_name),  # Separate debug folder per resistor
                 )
             except Exception as e:
                 detection_result = "errors"
