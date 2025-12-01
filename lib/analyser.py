@@ -15,37 +15,40 @@ DEBUG_MODE = True
 
 # --- CALIBRAGE LAB (Spécial Corps Rouge - Sans Silver) ---
 REF_COLORS_LAB = {
-    "black":  (20, 128, 128),
-    "white":  (240, 128, 128),
-    
-    # Gris : On cible un gris moyen/clair. 
+    "black": (20, 128, 128),
+    "white": (240, 128, 128),
+
+    # Gris : On cible un gris moyen/clair.
     # Tout ce qui brillait comme "Silver" tombera ici ou dans White.
-    "grey":   (130, 128, 128),
-    
-    "brown":  (50, 138, 135),  
-    "red":    (100, 170, 150),   
+    "grey": (130, 128, 128),
+
+    "brown": (50, 138, 135),
+    "red": (100, 170, 150),
     "orange": (140, 160, 170),
-    "yellow": (210, 130, 190),  
-    "gold":   (140, 135, 160),  
-    "green":  (80, 100, 135),  
-    "blue":   (50, 130, 80), 
-    "violet": (70, 155, 90), 
+    "yellow": (210, 130, 190),
+    "gold": (140, 135, 160),
+    "green": (80, 100, 135),
+    "blue": (50, 130, 80),
+    "violet": (70, 155, 90),
 }
+
 
 def ensure_dir(p):
     if p and not os.path.exists(p): os.makedirs(p)
+
 
 def remove_glare(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     _, s, v = cv2.split(hsv)
     mask_glare = cv2.inRange(hsv, (0, 0, 230), (180, 20, 255))
-    mask_glare = cv2.dilate(mask_glare, np.ones((3,3), np.uint8), iterations=1)
+    mask_glare = cv2.dilate(mask_glare, np.ones((3, 3), np.uint8), iterations=1)
     return cv2.inpaint(img, mask_glare, 2, cv2.INPAINT_TELEA)
+
 
 def get_closest_color(mean_lab):
     l, a, b = mean_lab
     # Chroma = Saturation (distance du centre gris 128,128)
-    chroma = math.sqrt((a - 128)**2 + (b - 128)**2)
+    chroma = math.sqrt((a - 128) ** 2 + (b - 128) ** 2)
 
     # --- 1. GESTION DES NEUTRES (NOIR/GRIS/BLANC) ---
     # Si la couleur est très faible (chroma < 10), c'est un neutre.
@@ -61,10 +64,10 @@ def get_closest_color(mean_lab):
 
     for name, (rl, ra, rb) in REF_COLORS_LAB.items():
         if name in ['black', 'white', 'grey']: continue
-        
+
         # Poids : On privilégie la teinte (a,b)
-        dist = math.sqrt(0.8*(l - rl)**2 + 2.0*(a - ra)**2 + 2.0*(b - rb)**2)
-        
+        dist = math.sqrt(0.8 * (l - rl) ** 2 + 2.0 * (a - ra) ** 2 + 2.0 * (b - rb) ** 2)
+
         if dist < min_dist:
             min_dist = dist
             best_name = name
@@ -89,32 +92,33 @@ def get_closest_color(mean_lab):
 
     return best_name
 
+
 def scan_resistor_bands(roi_img, out_dir=None):
     h, w = roi_img.shape[:2]
-    
+
     clean = remove_glare(roi_img)
-    if out_dir: 
+    if out_dir:
         cv2.imwrite(os.path.join(out_dir, "05b_glare_removed.png"), clean)
 
     smooth = cv2.bilateralFilter(clean, 5, 50, 50)
-    if out_dir: 
+    if out_dir:
         cv2.imwrite(os.path.join(out_dir, "10_clean_smooth.png"), smooth)
 
     lab = cv2.cvtColor(smooth, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    
+
     bg_l, bg_a, bg_b = np.median(l), np.median(a), np.median(b)
-    
+
     y_start, y_end = int(h * 0.2), int(h * 0.8)
     diff_signal = []
-    
+
     for x in range(w):
         col_l = np.mean(l[y_start:y_end, x])
         col_a = np.mean(a[y_start:y_end, x])
         col_b = np.mean(b[y_start:y_end, x])
-        d = math.sqrt(0.6*(col_l-bg_l)**2 + 1.8*(col_a-bg_a)**2 + 1.8*(col_b-bg_b)**2)
+        d = math.sqrt(0.6 * (col_l - bg_l) ** 2 + 1.8 * (col_a - bg_a) ** 2 + 1.8 * (col_b - bg_b) ** 2)
         diff_signal.append(d)
-        
+
     diff_signal = np.array(diff_signal)
     if np.max(diff_signal) > 0: diff_signal /= np.max(diff_signal)
 
@@ -127,7 +131,7 @@ def scan_resistor_bands(roi_img, out_dir=None):
     in_band = False
     start_x = 0
     margin = int(w * 0.10)
-    
+
     for x in range(margin, w - margin):
         val = mask_bands[x]
         if val == 1 and not in_band:
@@ -138,24 +142,25 @@ def scan_resistor_bands(roi_img, out_dir=None):
             if width > w * 0.02:
                 cx = start_x + width // 2
                 sw = max(1, width // 3)
-                roi_b = lab[y_start:y_end, cx-sw:cx+sw]
-                ml, ma, mb = np.median(roi_b[:,:,0]), np.median(roi_b[:,:,1]), np.median(roi_b[:,:,2])
+                roi_b = lab[y_start:y_end, cx - sw:cx + sw]
+                ml, ma, mb = np.median(roi_b[:, :, 0]), np.median(roi_b[:, :, 1]), np.median(roi_b[:, :, 2])
                 c_name = get_closest_color((ml, ma, mb))
                 bands_found.append({'color': c_name, 'rect': (start_x, 0, width, h)})
 
     vis = clean.copy()
     pts = [(x, int(h - (diff_signal[x] * h))) for x in range(w)]
-    cv2.polylines(vis, [np.array(pts)], False, (0,0,255), 1)
-    
+    cv2.polylines(vis, [np.array(pts)], False, (0, 0, 255), 1)
+
     final_colors, final_rects = [], []
     for b in bands_found:
         x, y, bw, bh = b['rect']
-        cv2.rectangle(vis, (x, 0), (x+bw, h), (0, 255, 0), 2)
+        cv2.rectangle(vis, (x, 0), (x + bw, h), (0, 255, 0), 2)
         cv2.putText(vis, b['color'], (x, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
         final_colors.append(b['color'])
         final_rects.append(b['rect'])
 
     return final_colors, final_rects, vis
+
 
 def keep_resistor_body(mask_bin):
     dist = cv2.distanceTransform(mask_bin, cv2.DIST_L2, 5)
@@ -167,7 +172,9 @@ def keep_resistor_body(mask_bin):
     if not ctrs: return mask_bin
     mask_s = np.zeros_like(mask_bin)
     cv2.drawContours(mask_s, [max(ctrs, key=cv2.contourArea)], -1, 255, -1)
-    return cv2.bitwise_and(cv2.dilate(mask_s, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(max_val), int(max_val)))), mask_bin)
+    return cv2.bitwise_and(
+        cv2.dilate(mask_s, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(max_val), int(max_val)))), mask_bin)
+
 
 def process_resistor_image(img_path, out_dir="output"):
     ensure_dir(out_dir)
@@ -175,28 +182,78 @@ def process_resistor_image(img_path, out_dir="output"):
     if img is None: return print(f"Err: {img_path}")
 
     h, w = img.shape[:2]
-    if w > 1000: img = cv2.resize(img, (1000, int(h * (1000/w))))
-    
+    if w > 1000:
+        img = cv2.resize(img, (1000, int(h * (1000 / w))))
+
+    # DEBUG: Save resized input image
+    cv2.imwrite(os.path.join(out_dir, "00_input_resized.png"), img)
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # DEBUG: Save grayscale
+    cv2.imwrite(os.path.join(out_dir, "01a_grayscale.png"), gray)
+
     _, th = cv2.threshold(255 - gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    body_mask = keep_resistor_body(cv2.morphologyEx(th, cv2.MORPH_OPEN, np.ones((3,3), np.uint8)))
+    # DEBUG: Save initial threshold (before morphology)
+    cv2.imwrite(os.path.join(out_dir, "01b_threshold.png"), th)
+
+    # DEBUG: Save after morphology open (before keep_resistor_body)
+    th_morph = cv2.morphologyEx(th, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    cv2.imwrite(os.path.join(out_dir, "01c_morphology.png"), th_morph)
+
+    body_mask = keep_resistor_body(th_morph)
     cv2.imwrite(os.path.join(out_dir, "02_body_mask.png"), body_mask)
 
     ctrs, _ = cv2.findContours(body_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not ctrs: return print("No body")
-    
+
+    # DEBUG: Draw detected contour on original image
+    contour_vis = img.copy()
+    cv2.drawContours(contour_vis, [max(ctrs, key=cv2.contourArea)], -1, (0, 255, 0), 2)
+    cv2.imwrite(os.path.join(out_dir, "03a_detected_contour.png"), contour_vis)
+
     rect = cv2.minAreaRect(max(ctrs, key=cv2.contourArea))
-    if rect[1][0] < rect[1][1]: angle = rect[2] + 90
-    else: angle = rect[2]
-    
+    if rect[1][0] < rect[1][1]:
+        angle = rect[2] + 90
+    else:
+        angle = rect[2]
+
+    # DEBUG: Draw rotation rectangle
+    rotation_vis = img.copy()
+    box = cv2.boxPoints(rect)
+    box = np.intp(box)
+    cv2.drawContours(rotation_vis, [box], 0, (0, 0, 255), 2)
+    cv2.putText(rotation_vis, f"Angle: {angle:.1f}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    cv2.imwrite(os.path.join(out_dir, "03b_rotation_rect.png"), rotation_vis)
+
     M = cv2.getRotationMatrix2D(rect[0], angle, 1.0)
-    rot = cv2.warpAffine(img, M, img.shape[:2][::-1], borderValue=(255,255,255))
+    rot = cv2.warpAffine(img, M, img.shape[:2][::-1], borderValue=(255, 255, 255))
     rot_mask = cv2.warpAffine(body_mask, M, img.shape[:2][::-1], flags=cv2.INTER_NEAREST, borderValue=0)
-    
+
+    # DEBUG: Save rotated image and mask
+    cv2.imwrite(os.path.join(out_dir, "04a_rotated_image.png"), rot)
+    cv2.imwrite(os.path.join(out_dir, "04b_rotated_mask.png"), rot_mask)
+
     c_r = max(cv2.findContours(rot_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0], key=cv2.contourArea)
     x, y, wb, hb = cv2.boundingRect(c_r)
-    roi = rot[y+int(hb*0.1):y+hb-int(hb*0.1), x+int(wb*CROP_MARGIN_PERCENT):x+wb-int(wb*CROP_MARGIN_PERCENT)]
-    
+
+    # DEBUG: Draw bounding box before crop
+    bbox_vis = rot.copy()
+    cv2.rectangle(bbox_vis, (x, y), (x + wb, y + hb), (255, 0, 0), 2)
+    # Draw the actual crop region (with margins)
+    crop_x1 = x + int(wb * CROP_MARGIN_PERCENT)
+    crop_x2 = x + wb - int(wb * CROP_MARGIN_PERCENT)
+    crop_y1 = y + int(hb * 0.1)
+    crop_y2 = y + hb - int(hb * 0.1)
+    cv2.rectangle(bbox_vis, (crop_x1, crop_y1), (crop_x2, crop_y2), (0, 255, 0), 2)
+    cv2.putText(bbox_vis, "Full BBox", (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+    cv2.putText(bbox_vis, "Crop Region", (crop_x1, crop_y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+    cv2.imwrite(os.path.join(out_dir, "04c_crop_regions.png"), bbox_vis)
+
+    roi = rot[crop_y1:crop_y2, crop_x1:crop_x2]
+
     if roi.size == 0: return print("Crop failed")
     cv2.imwrite(os.path.join(out_dir, "05_roi.png"), roi)
 
@@ -233,5 +290,6 @@ def process_resistor_image(img_path, out_dir="output"):
         # print("Pas assez de bandes ou calculateur absent.")
         return "errors"
 
+
 if __name__ == "__main__":
-    print(process_resistor_image("../dataset/r5/20251020_093432.jpg", "debug_out"))
+    print(process_resistor_image("../dataset/r5/20251020_093432.jpg", "../debug_out"))
